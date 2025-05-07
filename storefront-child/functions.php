@@ -1,4 +1,18 @@
 <?
+// Подключение скрипта и передача ajaxurl + nonce
+function enqueue_city_search_script()
+{
+    wp_enqueue_script('main', get_stylesheet_directory_uri() . '/assets/js/main.js', array('jquery'), null, true);
+
+    wp_localize_script('main', 'citySearchData', array(
+        'ajaxurl' => admin_url('admin-ajax.php'),
+        'nonce'   => wp_create_nonce('city_search_nonce')
+    ));
+}
+
+add_action('wp_enqueue_scripts', 'enqueue_city_search_script');
+
+// Регистрирует post type Cities с поддержкой REST, архива, миниатюр и т.д.
 add_action('init', function () {
     register_post_type('cities', [
         'labels' => [
@@ -15,6 +29,68 @@ add_action('init', function () {
     ]);
 });
 
+// Регистрирует метабокс для записей типа cities с названием City Coordinates
+add_action('add_meta_boxes', function () {
+    add_meta_box(
+        'city_coordinates',
+        'City Coordinates',
+        'city_coordinates_metabox',
+        'cities',
+        'normal',
+        'high'
+    );
+});
+
+// Функция для сохранения широты и долготы из метабокса City Coordinates
+add_action('save_post', function ($post_id) {
+    // Проверяем, не является ли сохранение автоматическим
+    if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) return;
+
+    // Проверяем nonce для предотвращения подделки запроса
+    if (!isset($_POST['city_coordinates_nonce']) || !wp_verify_nonce($_POST['city_coordinates_nonce'], 'save_city_coordinates')) {
+        return;
+    }
+
+    // Проверяем, имеет ли пользователь право редактировать этот пост
+    if (!current_user_can('edit_post', $post_id)) {
+        return;
+    }
+
+    // Обрабатываем широту: удаляем лишние пробелы и проверяем, соответствует ли она допустимому формату координат
+    if (isset($_POST['latitude'])) {
+        $lat = trim($_POST['latitude']);
+        if (preg_match('/^-?\d{1,2}(\.\d+)?$/', $lat)) {
+            update_post_meta($post_id, 'latitude', $lat);
+        }
+    }
+
+    // Обрабатываем долготу: удаляем лишние пробелы и проверяем, соответствует ли она допустимому формату координат
+    if (isset($_POST['longitude'])) {
+        $lng = trim($_POST['longitude']);
+        if (preg_match('/^-?\d{1,3}(\.\d+)?$/', $lng)) {
+            update_post_meta($post_id, 'longitude', $lng);
+        }
+    }
+});
+
+// Функция для сохранения полей метабокса City Coordinates
+add_action('save_post', function ($post_id) {
+    if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) return;
+    if (!isset($_POST['city_coordinates_nonce']) || !wp_verify_nonce($_POST['city_coordinates_nonce'], 'save_city_coordinates')) return;
+
+    // проверка прав
+    if (!current_user_can('edit_post', $post_id)) return;
+
+    if (isset($_POST['latitude'])) {
+        update_post_meta($post_id, 'latitude', sanitize_text_field($_POST['latitude']));
+    }
+
+    if (isset($_POST['longitude'])) {
+        update_post_meta($post_id, 'longitude', sanitize_text_field($_POST['longitude']));
+    }
+});
+
+// Регистрирует кастомную таксономию "countries" для типа записи cities
 function create_countries_taxonomy()
 {
     $args = array(
@@ -37,51 +113,20 @@ function create_countries_taxonomy()
         'query_var' => true,
         'rewrite' => array('slug' => 'country'),
     );
+
+    // привязка к cities
     register_taxonomy('countries', 'cities', $args);
 }
 add_action('init', 'create_countries_taxonomy', 0);
 
-add_action('add_meta_boxes', function () {
-    add_meta_box(
-        'city_coordinates',
-        'City Coordinates',
-        'city_coordinates_metabox',
-        'cities',
-        'normal',
-        'high'
-    );
-});
 
-function city_coordinates_metabox($post)
-{
-    $latitude = get_post_meta($post->ID, 'latitude', true);
-    $longitude = get_post_meta($post->ID, 'longitude', true);
-?>
-    <label for="latitude">Latitude (Широта):</label>
-    <input type="text" name="latitude" id="latitude" value="<?php echo esc_attr($latitude); ?>" style="width:100%;" />
-
-    <label for="longitude">Longitude (Долгота):</label>
-    <input type="text" name="longitude" id="longitude" value="<?php echo esc_attr($longitude); ?>" style="width:100%;" />
-<?php
-}
-
-add_action('save_post', function ($post_id) {
-    if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) return;
-
-    if (isset($_POST['latitude'])) {
-        update_post_meta($post_id, 'latitude', sanitize_text_field($_POST['latitude']));
-    }
-
-    if (isset($_POST['longitude'])) {
-        update_post_meta($post_id, 'longitude', sanitize_text_field($_POST['longitude']));
-    }
-});
-
-
-// получние погоды
-function get_city_weather_data($city = 'Moscow')
+// получние погоды через апи openweathermap
+function get_city_weather_data($city = '')
 {
     $apiKey = '5df5946157fdc7921c13204ba070d414';
+    // Да, я оставил ключ тут, чтобы вам было проще запускать =)
+    // В боевом проекте я бы вынес его в файл config.php и спрятал бы через gitignore
+
     $url = "https://api.openweathermap.org/data/2.5/weather?q={$city}&appid={$apiKey}&units=metric&lang=ru";
 
     $response = wp_remote_get($url);
@@ -96,9 +141,10 @@ function get_city_weather_data($city = 'Moscow')
     ];
 }
 
-// регистрация виджета 
+// Регистрация виджета погоды с выбором города из записей cities
 class Simple_Weather_Widget extends WP_Widget
 {
+    // Конструктор: задаёт ID и имя виджета
     public function __construct()
     {
         parent::__construct(
@@ -107,6 +153,7 @@ class Simple_Weather_Widget extends WP_Widget
         );
     }
 
+    // Отображение виджета на фронте
     public function widget($args, $instance)
     {
         $city_id = !empty($instance['city']) ? $instance['city'] : '';
@@ -122,6 +169,7 @@ class Simple_Weather_Widget extends WP_Widget
         echo $args['after_widget'];
     }
 
+    // Форма настройки виджета в админке
     public function form($instance)
     {
         $selected = !empty($instance['city']) ? $instance['city'] : '';
@@ -140,6 +188,7 @@ class Simple_Weather_Widget extends WP_Widget
         echo '</select></p>';
     }
 
+    // Сохранение настроек виджета
     public function update($new_instance, $old_instance)
     {
         $instance = [];
@@ -148,10 +197,10 @@ class Simple_Weather_Widget extends WP_Widget
     }
 }
 
+// Регистрирует виджет Simple_Weather_Widget
 add_action('widgets_init', function () {
     register_widget('Simple_Weather_Widget');
 });
-
 
 // регистрация места вывода виджета 
 function register_custom_sidebar()
@@ -167,31 +216,35 @@ function register_custom_sidebar()
 }
 add_action('widgets_init', 'register_custom_sidebar');
 
-
 // ajax вывод поиска
 function city_search_ajax_handler()
 {
+    if (!isset($_POST['_ajax_nonce']) || !wp_verify_nonce($_POST['_ajax_nonce'], 'city_search_nonce')) {
+        wp_die('Доступ запрещён');
+    }
+
+    $ip = $_SERVER['REMOTE_ADDR'];
+    $key = 'city_search_limit_' . md5($ip);
+
+    // от DDoS 
+    if (false !== get_transient($key)) {
+        wp_die('Попробуйте позже');
+    }
+    set_transient($key, 1, 1);
+
     if (!empty($_POST['city_search'])) {
-        $city = get_city_weather_data(sanitize_text_field($_POST['city_search']));
+        $search_term = preg_replace('/[^\p{L}\p{N}\s-]+/u', '', sanitize_text_field($_POST['city_search']));
+        $city = get_city_weather_data($search_term);
 
         if (!empty($city) && isset($city['temp'])) {
-            echo $_POST['city_search'] . ' ' . $city['temp'] . '°C';
+            echo esc_html($search_term) . ' ' . esc_html($city['temp']) . '°C';
         } else {
-            echo "не нашли";
+            echo "Не нашли";
         }
     }
+
     wp_die();
 }
 
-
 add_action('wp_ajax_city_search', 'city_search_ajax_handler');
 add_action('wp_ajax_nopriv_city_search', 'city_search_ajax_handler');
-
-// подключение скриптов
-function enqueue_city_search_script()
-{
-    wp_enqueue_script('main', get_stylesheet_directory_uri() . '/assets//js/main.js', array('jquery'), null, true);
-    wp_localize_script('main', 'ajaxurl', admin_url('admin-ajax.php'));
-}
-
-add_action('wp_enqueue_scripts', 'enqueue_city_search_script');

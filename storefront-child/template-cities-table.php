@@ -5,6 +5,7 @@ Template Name: Cities Weather Table
 
 global $wpdb;
 
+// Использует глобальную переменную $wpdb для выполнения запроса к базе данных
 $cities = $wpdb->get_results("
     SELECT p.ID, p.post_title AS city, t.name AS country
     FROM {$wpdb->prefix}posts p
@@ -25,16 +26,21 @@ $cities = $wpdb->get_results("
         </div>
     </form>
 
+    <!-- До и после таблицы добавить custom action hook -->
     <?php do_action('before_city_table'); ?>
 
+    <!-- вывод всех городов в табличке, с странами -->
     <table>
         <thead>
             <tr>
                 <th>Страна</th>
                 <th>Город</th>
                 <th>Температура</th>
+                <th>Широта</th>
+                <th>Долгота</th>
             </tr>
         </thead>
+
         <tbody>
             <?php
             if ($cities) {
@@ -43,10 +49,16 @@ $cities = $wpdb->get_results("
                     $temp_data = get_city_weather_data($city_name);
                     $temp = $temp_data ? $temp_data['temp'] . '°C' : 'н/д';
 
+                    // вывел дополнительно метабоксы
+                    $latitude = get_post_meta($city->ID, 'latitude', true);
+                    $longitude = get_post_meta($city->ID, 'longitude', true);
+
                     echo '<tr>';
                     echo '<td>' . esc_html($city->country) . '</td>';
                     echo '<td>' . esc_html($city_name) . '</td>';
                     echo '<td>' . esc_html($temp) . '</td>';
+                    echo '<td>' . esc_html($latitude ? $latitude : 'н/д') . '</td>';
+                    echo '<td>' . esc_html($longitude ? $longitude : 'н/д') . '</td>';
                     echo '</tr>';
                 }
             }
@@ -54,6 +66,7 @@ $cities = $wpdb->get_results("
         </tbody>
     </table>
 
+    <!-- До и после таблицы добавить custom action hook -->
     <?php do_action('after_city_table'); ?>
 </div>
 
