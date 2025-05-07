@@ -41,6 +41,22 @@ add_action('add_meta_boxes', function () {
     );
 });
 
+// Функция для отображения полей метабокса "City Coordinates"
+function city_coordinates_metabox($post)
+{
+    wp_nonce_field('save_city_coordinates', 'city_coordinates_nonce');
+    // проверяем строки на xss или вредоностные вставки 
+    $latitude = sanitize_text_field(get_post_meta($post->ID, 'latitude', true));
+    $longitude = sanitize_text_field(get_post_meta($post->ID, 'longitude', true));
+?>
+    <label for="latitude">Latitude (Широта):</label>
+    <input type="number" name="latitude" id="latitude" value="<?php echo esc_attr($latitude); ?>" style="width:100%;" />
+
+    <label for="longitude">Longitude (Долгота):</label>
+    <input type="number" name="longitude" id="longitude" value="<?php echo esc_attr($longitude); ?>" style="width:100%;" />
+<?php
+}
+
 // Функция для сохранения широты и долготы из метабокса City Coordinates
 add_action('save_post', function ($post_id) {
     // Проверяем, не является ли сохранение автоматическим

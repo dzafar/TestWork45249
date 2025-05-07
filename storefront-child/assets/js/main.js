@@ -5,7 +5,7 @@
 
 jQuery(document).ready(function ($) {
     let typingTimer;
-    const delay = 1000;
+    const delay = 2000;
 
     $('#city-search').on('input', function () {
         $('#city-search-results').text("вникаем...");
